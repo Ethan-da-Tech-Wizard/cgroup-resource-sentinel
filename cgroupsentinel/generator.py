@@ -1,37 +1,20 @@
 """
-cgroupsentinel.generator
-========================
-
-Systemd drop-in override synthesizer with hardware-adaptive resource calculation.
-
-Educational Architecture Note:
-------------------------------
-Systemd Drop-in Overrides:
-Rather than modifying package-managed vendor unit files located in `/usr/lib/systemd/system/`
-(which would be overwritten on every package upgrade), systemd provides a clean, modular
-override mechanism via drop-in configuration directories:
-    `/etc/systemd/system/<unit-name>.service.d/*.conf`
-
-When systemd parses unit configurations:
-1. It reads the base `.service` file.
-2. It discovers all `<unit-name>.service.d/*.conf` files across the search paths in alphabetical order.
-3. Directives inside drop-in files overwrite or extend the base unit configuration.
-
-Hardware-Adaptive Dynamic Governor:
------------------------------------
-A static limit (e.g. `MemoryMax=4G`) might be reasonable on a 64GB workstation,
-but completely fatal on an 8GB laptop.
-This generator inspects physical host RAM and available CPU cores to compute proportional,
-safe boundary allocations that guarantee adequate headroom for desktop display servers,
-audio daemons, and interactive browsers.
+Program: Cgroup Resource Sentinel - Drop-in Override Generator
+Programmer: Ethan Kilmer
+Last Modified: 11/08/2026
+Purpose: Calculate hardware-adaptive resource boundaries and generate systemd drop-in override configuration files.
 """
 
 from __future__ import annotations
 
+## Operating system interface for environment variables and sysconf
 import os
+## Object-oriented filesystem path operations
 from pathlib import Path
+## Type hinting annotations
 from typing import Any, Dict, Optional, Tuple
 
+## Import telemetry inspector and domain models
 from .inspector import CgroupInspector
 from .models import HostMemoryInfo, ResourceLimits, format_bytes_human, parse_human_bytes
 
@@ -42,7 +25,8 @@ class DropInGenerator:
     enforcing kernel cgroup v2 boundaries for specified services.
     """
 
-    DEFAULT_OVERRIDE_FILENAME = "50-cgroup-sentinel.conf"
+    ## Standardized filename for Sentinel-managed systemd drop-in configuration overrides
+    DEFAULT_OVERRIDE_FILENAME: str = "50-cgroup-sentinel.conf"
 
     def __init__(self, inspector: Optional[CgroupInspector] = None) -> None:
         """
@@ -51,7 +35,8 @@ class DropInGenerator:
         Parameters:
             inspector: CgroupInspector instance (creates a default instance if omitted).
         """
-        self.inspector = inspector or CgroupInspector()
+        ## Store provided inspector or instantiate a default inspector
+        self.inspector: CgroupInspector = inspector or CgroupInspector()
 
     def detect_host_specs(self) -> Tuple[int, int]:
         """
@@ -60,22 +45,25 @@ class DropInGenerator:
         Returns:
             Tuple[int, int]: (total_ram_bytes, cpu_core_count).
         """
-        # 1. Attempt reading /proc/meminfo via inspector
-        mem_info = self.inspector.read_host_memory_info()
-        total_ram = mem_info.total_bytes
+        ## 1. Attempt reading /proc/meminfo via inspector
+        mem_info: HostMemoryInfo = self.inspector.read_host_memory_info()
+        total_ram: int = mem_info.total_bytes
 
-        # Fallback to POSIX sysconf if /proc/meminfo is missing (e.g. macOS test environments)
+        ## Fallback to POSIX sysconf if /proc/meminfo is missing (e.g. macOS test environments)
         if total_ram <= 0:
             try:
-                page_size = os.sysconf("SC_PAGE_SIZE")
-                phys_pages = os.sysconf("SC_PHYS_PAGES")
+                ## Query hardware page size in bytes
+                page_size: int = os.sysconf("SC_PAGE_SIZE")
+                ## Query total number of physical memory pages
+                phys_pages: int = os.sysconf("SC_PHYS_PAGES")
+                ## Calculate total RAM in bytes
                 total_ram = int(page_size * phys_pages)
             except (AttributeError, ValueError, OSError):
-                # Safe generic fallback: 8 GiB
+                ## Safe generic fallback: 8 GiB
                 total_ram = 8 * (1024**3)
 
-        # 2. Detect CPU cores
-        cpu_cores = os.cpu_count() or 2
+        ## 2. Detect CPU cores, defaulting to 2 if query returns None
+        cpu_cores: int = os.cpu_count() or 2
 
         return total_ram, cpu_cores
 
@@ -110,34 +98,51 @@ class DropInGenerator:
         Returns:
             ResourceLimits: Calculated boundaries.
         """
+        ## Detect host physical hardware specifications
         detected_ram, detected_cpus = self.detect_host_specs()
-        ram = host_ram if host_ram is not None else detected_ram
-        cpus = cpu_cores if cpu_cores is not None else detected_cpus
+        ## Use caller-provided explicit values if specified (e.g. for testing)
+        ram: int = host_ram if host_ram is not None else detected_ram
+        cpus: int = cpu_cores if cpu_cores is not None else detected_cpus
 
-        profile_clean = profile.strip().lower()
+        ## Clean and normalize the profile name
+        profile_clean: str = profile.strip().lower()
 
+        ## Branch 1: Conservative Profile (Background Daemons, Cron, Telemetry)
         if profile_clean == "conservative":
-            # 10% of host RAM, minimum 128MB, maximum 1GB
+            ## 10% of host RAM, minimum 128MB, maximum 1GB
             mem_max = max(128 * (1024**2), min(int(ram * 0.10), 1024**3))
+            ## Throttle at 80% of max limit
             mem_high = int(mem_max * 0.80)
-            mem_swap_max = 0  # Disable swap to protect SSD and desktop I/O latency
-            cpu_quota = 50.0  # 50% of 1 core
+            ## Disable swap completely to protect SSD endurance and avoid desktop I/O latency
+            mem_swap_max = 0
+            ## Cap CPU at 50% of one core
+            cpu_quota = 50.0
+            ## Limit concurrent tasks to 256
             tasks_max = 256
+            ## Cleanly stop service if OOM triggered
             oom_policy = "stop"
-            oom_score = 500  # Highly prioritized for OOM termination before desktop UI
+            ## Highly prioritized for OOM termination before interactive desktop session
+            oom_score = 500
 
+        ## Branch 2: Aggressive Profile (Compilers, Local LLMs, Heavy Stacks)
         elif profile_clean == "aggressive":
-            # 50% of host RAM, leaving desktop buffer
+            ## 50% of host RAM, leaving remaining 50% for desktop and page cache
             mem_max = max(512 * (1024**2), int(ram * 0.50))
+            ## Throttle at 90% of max limit
             mem_high = int(mem_max * 0.90)
+            ## Allow limited swap (25% of max)
             mem_swap_max = int(mem_max * 0.25)
-            # Allocate all cores except one reserved for desktop interactivity
+            ## Allocate all cores except one reserved for desktop interactivity
             available_cores = max(1, cpus - 1)
             cpu_quota = float(available_cores * 100)
+            ## Allow large thread pool (up to 4096 tasks)
             tasks_max = 4096
+            ## Terminate offending tasks on OOM
             oom_policy = "kill"
+            ## Modest sacrifice priority
             oom_score = 100
 
+        ## Branch 3: Custom Profile (Direct Explicit Specification)
         elif profile_clean == "custom":
             mem_max = None
             mem_high = None
@@ -147,16 +152,22 @@ class DropInGenerator:
             oom_policy = "stop"
             oom_score = 250
 
-        else:  # 'standard'
-            # 25% of host RAM, minimum 256MB, maximum 4GB
+        ## Branch 4: Standard Profile (Default: Web Services, Databases, Proxies)
+        else:
+            ## 25% of host RAM, minimum 256MB, maximum 4GB
             mem_max = max(256 * (1024**2), min(int(ram * 0.25), 4 * (1024**3)))
+            ## Throttle at 85% of max limit
             mem_high = int(mem_max * 0.85)
+            ## Strictly cap swap at 10% of memory max
             mem_swap_max = int(mem_max * 0.10)
-            cpu_quota = 100.0  # 1 full core
+            ## 1 full CPU core
+            cpu_quota = 100.0
+            ## Allow up to 1024 threads
             tasks_max = 1024
             oom_policy = "stop"
             oom_score = 250
 
+        ## Instantiate calculated ResourceLimits
         limits = ResourceLimits(
             memory_max=mem_max,
             memory_high=mem_high,
@@ -167,7 +178,7 @@ class DropInGenerator:
             oom_score_adjust=oom_score,
         )
 
-        # Apply user-supplied overrides
+        ## Apply caller-supplied explicit overrides if present
         if custom_overrides:
             for k, v in custom_overrides.items():
                 if hasattr(limits, k) and v is not None:
@@ -186,7 +197,8 @@ class DropInGenerator:
         Returns:
             str: Full configuration text.
         """
-        header_lines = [
+        ## Assemble descriptive educational header comments explaining cgroup v2 mechanics
+        header_lines: List[str] = [
             f"# ====================================================================",
             f"# Cgroup Resource Sentinel: Automated Drop-in Override",
             f"# Target Unit: {unit_name}",
@@ -205,7 +217,9 @@ class DropInGenerator:
             "",
         ]
 
-        conf_body = limits.to_systemd_conf()
+        ## Generate systemd INI directives from ResourceLimits object
+        conf_body: str = limits.to_systemd_conf()
+        ## Combine header comments and configuration body
         return "\n".join(header_lines) + conf_body
 
     def write_drop_in(
@@ -233,21 +247,30 @@ class DropInGenerator:
         Returns:
             Tuple[Path, str]: (Target drop-in file path, generated file content).
         """
-        normalized = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
-        content = self.generate_drop_in_content(normalized, limits)
+        ## Normalize unit name with .service extension
+        normalized: str = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        ## Generate full configuration file text
+        content: str = self.generate_drop_in_content(normalized, limits)
 
+        ## Determine destination directory based on arguments
         if destination_dir is not None:
-            target_drop_in_dir = destination_dir / f"{normalized}.d"
+            ## Use caller-provided custom directory (e.g. temporary directory during tests)
+            target_drop_in_dir: Path = destination_dir / f"{normalized}.d"
         elif is_user:
-            user_config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+            ## Target user session systemd configuration: ~/.config/systemd/user/<unit>.service.d/
+            user_config_home: Path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
             target_drop_in_dir = user_config_home / "systemd" / "user" / f"{normalized}.d"
         else:
+            ## Target system-wide systemd configuration: /etc/systemd/system/<unit>.service.d/
             target_drop_in_dir = Path("/etc/systemd/system") / f"{normalized}.d"
 
-        target_file = target_drop_in_dir / self.DEFAULT_OVERRIDE_FILENAME
+        ## Full path to the override configuration file
+        target_file: Path = target_drop_in_dir / self.DEFAULT_OVERRIDE_FILENAME
 
+        ## If not in dry-run mode, create directory and write file
         if not dry_run:
             target_drop_in_dir.mkdir(parents=True, exist_ok=True)
             target_file.write_text(content, encoding="utf-8")
 
+        ## Return target file path and written content string
         return target_file, content
