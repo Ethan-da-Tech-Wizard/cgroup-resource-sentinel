@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cgroup-resource-sentinel"
+version = "0.1.0"
+description = "Zero-dependency Linux cgroup v2 resource governor, systemd unit auditor, and automated drop-in override generator."
+readme = "README.md"
+authors = [
+  { name = "Ethan Kilmer", email = "ethan@twu.software" }
+]
+license = { text = "MIT" }
+keywords = [
+  "cgroups",
+  "cgroupv2",
+  "systemd",
+  "linux",
+  "kernel",
+  "psi",
+  "oom-killer",
+  "resource-governance",
+  "sre",
+  "devops"
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: System Administrators",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: System :: Systems Administration",
+  "Topic :: System :: Operating System Kernels :: Linux",
+  "Topic :: System :: Monitoring",
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+cgroup-sentinel = "cgroupsentinel.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Ethan-da-Tech-Wizard/cgroup-resource-sentinel"
+Repository = "https://github.com/Ethan-da-Tech-Wizard/cgroup-resource-sentinel"
+Issues = "https://github.com/Ethan-da-Tech-Wizard/cgroup-resource-sentinel/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cgroupsentinel*"]
