@@ -1,40 +1,20 @@
 """
-cgroupsentinel.auditor
-======================
-
-Systemd unit configuration auditor and resource gap analysis engine.
-
-Educational Architecture Note:
-------------------------------
-In modern Linux distributions running systemd as PID 1, systemd manages the cgroup v2
-hierarchy automatically. When a service is started, systemd allocates a dedicated cgroup
-node for that unit (typically within `system.slice/<service>.service` for system daemons,
-or `user.slice/user-<uid>.slice/user@<uid>.service/app.slice/...` for user sessions).
-
-The Critical Risk of Unbounded Services:
-----------------------------------------
-By default, upstream package maintainers rarely configure resource boundaries in stock
-vendor unit files (`/usr/lib/systemd/system/*.service`).
-Without explicit limits:
-1. An unconstrained service can exhaust host RAM, forcing the Linux kernel to reclaim
-   all filesystem page cache.
-2. The system enters catastrophic page thrashing (dirty writeback + swap-in loops).
-3. The X11/Wayland display server and desktop compositor drop frames, audio stutters,
-   and mouse cursor movement freezes completely.
-4. When the Linux Out-Of-Memory (OOM) killer finally wakes up, its heuristic score
-   (`badness()` calculation) considers total page count, often terminating the user's
-   browser or desktop session instead of the offending background service.
-
-This auditor evaluates systemd `.service` unit files against safe cgroup v2 boundaries,
-computes a quantitative Risk Score (0-100), and outputs specific remediation guidance.
+Program: Cgroup Resource Sentinel - Systemd Unit Auditor
+Programmer: Ethan Kilmer
+Last Modified: 11/08/2026
+Purpose: Audit systemd service unit files and drop-in overrides to identify missing cgroup v2 resource limits and calculate risk scores.
 """
 
 from __future__ import annotations
 
+## Operating system utilities for path expansion and environment access
 import os
+## Object-oriented filesystem path operations
 from pathlib import Path
+## Typing annotations for static verification
 from typing import Dict, List, Optional, Tuple
 
+## Import domain models and conversion helpers
 from .models import ResourceLimits, ServiceAudit, parse_human_bytes
 
 
@@ -46,7 +26,7 @@ class SystemdUnitAuditor:
     hierarchies (`<unit>.service.d/*.conf`), and generates quantitative risk assessments.
     """
 
-    # Standard systemd search paths in descending priority order
+    ## Standard systemd search paths in descending priority order
     STANDARD_SYSTEM_PATHS: List[str] = [
         "/etc/systemd/system",
         "/run/systemd/system",
@@ -55,6 +35,7 @@ class SystemdUnitAuditor:
         "/lib/systemd/system",
     ]
 
+    ## Standard user unit search paths in descending priority order
     STANDARD_USER_PATHS: List[str] = [
         "~/.config/systemd/user",
         "/etc/systemd/user",
@@ -70,9 +51,12 @@ class SystemdUnitAuditor:
             search_paths: List of directory paths to search for unit files.
                           If None, defaults to standard system locations.
         """
+        ## Check if caller provided explicit custom search paths
         if search_paths is not None:
-            self.search_paths = [Path(os.path.expanduser(p)) for p in search_paths]
+            ## Expand user tildes and convert to Path objects
+            self.search_paths: List[Path] = [Path(os.path.expanduser(p)) for p in search_paths]
         else:
+            ## Use standard systemd system paths by default
             self.search_paths = [
                 Path(os.path.expanduser(p)) for p in self.STANDARD_SYSTEM_PATHS
             ]
@@ -87,14 +71,19 @@ class SystemdUnitAuditor:
         Returns:
             Optional[Path]: Absolute path to the highest-priority unit file, or None.
         """
-        # Ensure name ends with .service
-        normalized = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        ## Ensure the unit name has the '.service' suffix appended
+        normalized: str = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
 
+        ## Iterate through search paths in priority order
         for base_dir in self.search_paths:
-            candidate = base_dir / normalized
+            ## Form candidate file path
+            candidate: Path = base_dir / normalized
+            ## Check if candidate exists as a file
             if candidate.is_file():
+                ## Return resolved canonical absolute path
                 return candidate.resolve()
 
+        ## Return None if unit file was not found in any search path
         return None
 
     def find_drop_ins(self, unit_name: str) -> List[Path]:
@@ -114,17 +103,25 @@ class SystemdUnitAuditor:
         Returns:
             List[Path]: Sorted list of resolved drop-in configuration files.
         """
-        normalized = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
-        drop_in_dir_name = f"{normalized}.d"
+        ## Ensure proper .service suffix
+        normalized: str = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        ## Standard drop-in directory naming convention: <name>.service.d
+        drop_in_dir_name: str = f"{normalized}.d"
+        ## Accumulator for discovered drop-in configuration files
         drop_ins: List[Path] = []
 
+        ## Check each search path for the drop-in override directory
         for base_dir in self.search_paths:
-            drop_in_dir = base_dir / drop_in_dir_name
+            drop_in_dir: Path = base_dir / drop_in_dir_name
+            ## If the override directory exists, discover all *.conf snippets
             if drop_in_dir.is_dir():
+                ## Sort lexicographically to honor systemd drop-in evaluation ordering
                 for conf_file in sorted(drop_in_dir.glob("*.conf")):
                     if conf_file.is_file():
+                        ## Append resolved canonical path
                         drop_ins.append(conf_file.resolve())
 
+        ## Return sorted list of drop-in files
         return drop_ins
 
     def parse_systemd_ini(self, file_path: Path) -> Dict[str, Dict[str, str]]:
@@ -144,50 +141,62 @@ class SystemdUnitAuditor:
         Returns:
             Dict[str, Dict[str, str]]: Parsed sections and key-value properties.
         """
+        ## Outer dictionary mapping section name -> {key: value}
         sections: Dict[str, Dict[str, str]] = {}
+        ## Pointer tracking the active section name being parsed
         current_section: Optional[str] = None
 
         try:
-            content = file_path.read_text(encoding="utf-8")
+            ## Read entire file as UTF-8 string
+            content: str = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
+            ## Return empty sections on read failure or encoding error
             return sections
 
-        # Handle line continuations (lines ending with backslash)
-        raw_lines = content.splitlines()
+        ## Split file into individual lines
+        raw_lines: List[str] = content.splitlines()
+        ## List for holding processed lines after resolving backslash continuations
         merged_lines: List[str] = []
-        continuation_buffer = ""
+        ## Temporary buffer for multi-line continuation strings
+        continuation_buffer: str = ""
 
+        ## First pass: merge lines ending with backslash '\'
         for line in raw_lines:
-            stripped = line.strip()
+            stripped: str = line.strip()
+            ## If line ends with backslash, strip backslash and accumulate in buffer
             if stripped.endswith("\\"):
                 continuation_buffer += stripped[:-1].strip() + " "
             else:
+                ## If continuation buffer was active, append merged line
                 if continuation_buffer:
                     merged_lines.append(continuation_buffer + stripped)
                     continuation_buffer = ""
                 else:
                     merged_lines.append(stripped)
 
+        ## Flush any remaining continuation buffer
         if continuation_buffer:
             merged_lines.append(continuation_buffer)
 
+        ## Second pass: parse sections and key-value pairs
         for line in merged_lines:
-            # Skip empty lines and comments
+            ## Skip blank lines and comment lines (starting with # or ;)
             if not line or line.startswith("#") or line.startswith(";"):
                 continue
 
-            # Section header
+            ## Detect section header: [SectionName]
             if line.startswith("[") and line.endswith("]"):
                 current_section = line[1:-1].strip()
                 if current_section not in sections:
                     sections[current_section] = {}
                 continue
 
-            # Key-value assignment within section
+            ## Detect key-value pair within active section
             if current_section and "=" in line:
                 key, val = line.split("=", 1)
                 key = key.strip()
                 val = val.strip()
+                ## Store directive in current section dictionary
                 sections[current_section][key] = val
 
         return sections
@@ -203,21 +212,26 @@ class SystemdUnitAuditor:
             Tuple[Dict[str, str], Optional[Path]]: Merged [Service] section properties
                                                    and the primary unit file path.
         """
-        unit_file = self.find_unit_file(unit_name)
+        ## Find the base service unit file
+        unit_file: Optional[Path] = self.find_unit_file(unit_name)
+        ## Dictionary to accumulate merged [Service] directives
         combined_service_props: Dict[str, str] = {}
 
+        ## If base unit file exists, parse its [Service] section
         if unit_file:
             parsed = self.parse_systemd_ini(unit_file)
             if "Service" in parsed:
                 combined_service_props.update(parsed["Service"])
 
-        # Layer on drop-in overrides
-        drop_ins = self.find_drop_ins(unit_name)
+        ## Discover and layer on all drop-in overrides in lexicographical order
+        drop_ins: List[Path] = self.find_drop_ins(unit_name)
         for drop_in in drop_ins:
             parsed = self.parse_systemd_ini(drop_in)
             if "Service" in parsed:
+                ## Overwrite or add directives from drop-in
                 combined_service_props.update(parsed["Service"])
 
+        ## Return merged service properties and the path to the base unit file
         return combined_service_props, unit_file
 
     def audit_unit(self, unit_name: str) -> ServiceAudit:
@@ -238,9 +252,12 @@ class SystemdUnitAuditor:
         Returns:
             ServiceAudit: Complete audit report with violations and recommendations.
         """
-        normalized = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        ## Normalize unit name with .service extension
+        normalized: str = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        ## Load merged directives from base unit file and drop-in overrides
         props, unit_file = self.load_combined_unit_properties(normalized)
 
+        ## Check if unit file could not be found anywhere
         if not unit_file and not props:
             return ServiceAudit(
                 unit_name=normalized,
@@ -251,70 +268,82 @@ class SystemdUnitAuditor:
                 risk_score=50,
             )
 
+        ## Container for parsed effective limits
         limits = ResourceLimits()
+        ## List for storing detected boundary violations
         violations: List[str] = []
+        ## List for storing actionable remediation steps
         recommendations: List[str] = []
-        risk_score = 0
+        ## Cumulative risk score counter
+        risk_score: int = 0
 
-        # 1. Audit MemoryMax
-        # Note: systemd supports 'MemoryMax=' and legacy 'MemoryLimit='
+        ## 1. Audit MemoryMax (hard physical RAM boundary)
         mem_max_str = props.get("MemoryMax") or props.get("MemoryLimit")
         has_mem_max = bool(mem_max_str and mem_max_str.strip().lower() not in ("infinity", "max", ""))
         if has_mem_max:
             try:
+                ## Parse memory string to byte integer
                 limits.memory_max = parse_human_bytes(mem_max_str)
             except ValueError:
+                ## Flag invalid format syntax error
                 violations.append(f"Invalid MemoryMax format: '{mem_max_str}'")
                 risk_score += 15
         else:
+            ## Missing memory ceiling is the single greatest hazard for host stability
             violations.append("Missing MemoryMax ceiling (Unconstrained physical RAM allocation)")
             recommendations.append("Define MemoryMax in a drop-in override (e.g. MemoryMax=2G)")
             risk_score += 35
 
-        # 2. Audit MemorySwapMax
+        ## 2. Audit MemorySwapMax (swap pagination boundary)
         mem_swap_str = props.get("MemorySwapMax")
         has_mem_swap_max = bool(mem_swap_str and mem_swap_str.strip().lower() not in ("infinity", "max", ""))
         if has_mem_swap_max:
             try:
+                ## Parse swap string to byte integer
                 limits.memory_swap_max = parse_human_bytes(mem_swap_str)
             except ValueError:
                 violations.append(f"Invalid MemorySwapMax format: '{mem_swap_str}'")
                 risk_score += 5
         else:
+            ## Uncapped swap causes SSD write amplification, I/O latency spikes, and GUI stutter
             violations.append("Missing MemorySwapMax limit (Runaway memory may thrash swap SSD/disk)")
             recommendations.append("Define MemorySwapMax=0 (to forbid swap) or cap strictly")
             risk_score += 15
 
-        # 3. Audit CPUQuota
+        ## 3. Audit CPUQuota (CPU bandwidth quota)
         cpu_quota_str = props.get("CPUQuota")
         has_cpu_quota = bool(cpu_quota_str and cpu_quota_str.strip())
         if has_cpu_quota:
             clean_cpu = cpu_quota_str.rstrip("%").strip()
             try:
+                ## Parse percentage value as float
                 limits.cpu_quota_percent = float(clean_cpu)
             except ValueError:
                 violations.append(f"Invalid CPUQuota format: '{cpu_quota_str}'")
                 risk_score += 5
         else:
+            ## Missing CPU quota can allow runaway loops to starve the display server
             violations.append("Missing CPUQuota limit (Runaway loop can starve desktop compositor)")
             recommendations.append("Define CPUQuota (e.g. CPUQuota=100% for 1 core cap)")
             risk_score += 15
 
-        # 4. Audit TasksMax
+        ## 4. Audit TasksMax (task / PID thread count ceiling)
         tasks_max_str = props.get("TasksMax")
         has_tasks_max = bool(tasks_max_str and tasks_max_str.strip().lower() not in ("infinity", "max", ""))
         if has_tasks_max:
             try:
+                ## Parse task count as integer
                 limits.tasks_max = int(tasks_max_str)
             except ValueError:
                 violations.append(f"Invalid TasksMax format: '{tasks_max_str}'")
                 risk_score += 5
         else:
+            ## Missing TasksMax exposes system to thread leaks and fork bombs
             violations.append("Missing TasksMax limit (Vulnerable to fork bombs and thread exhaustion)")
             recommendations.append("Define TasksMax (e.g. TasksMax=512) to bound thread count")
             risk_score += 15
 
-        # 5. Audit OOMPolicy
+        ## 5. Audit OOMPolicy (behavior when cgroup memory ceiling is breached)
         oom_policy_str = props.get("OOMPolicy")
         has_oom_policy = bool(oom_policy_str and oom_policy_str.strip().lower() in ("stop", "kill"))
         if has_oom_policy:
@@ -324,14 +353,14 @@ class SystemdUnitAuditor:
             recommendations.append("Set OOMPolicy=stop to cleanly terminate failed service on OOM")
             risk_score += 10
 
-        # 6. Audit OOMScoreAdjust
+        ## 6. Audit OOMScoreAdjust (kernel badness bias)
         oom_score_str = props.get("OOMScoreAdjust")
-        has_oom_score = False
+        has_oom_score: bool = False
         if oom_score_str:
             try:
-                val = int(oom_score_str)
+                val: int = int(oom_score_str)
                 limits.oom_score_adjust = val
-                # For background daemons, positive score (e.g. 500) ensures daemon is killed before UI
+                ## Positive score ensures background service is sacrificed before GUI / browser
                 if val > 0:
                     has_oom_score = True
                 else:
@@ -346,9 +375,10 @@ class SystemdUnitAuditor:
             recommendations.append("Set OOMScoreAdjust=500 to prioritize background service termination")
             risk_score += 10
 
-        # Clamp total risk score to 0-100 range
-        clamped_risk = min(100, max(0, risk_score))
+        ## Clamp cumulative risk score to standard 0-100 range
+        clamped_risk: int = min(100, max(0, risk_score))
 
+        ## Assemble and return completed ServiceAudit report
         return ServiceAudit(
             unit_name=normalized,
             unit_path=str(unit_file) if unit_file else None,
@@ -375,20 +405,25 @@ class SystemdUnitAuditor:
         Returns:
             List[ServiceAudit]: Audit reports for all discovered services.
         """
+        ## Accumulator for directory audit results
         results: List[ServiceAudit] = []
+        ## Verify that target path is an existing directory
         if not dir_path.is_dir():
             return results
 
-        # Temporarily prepend directory to search paths to ensure local overrides resolve
-        original_paths = list(self.search_paths)
+        ## Temporarily prepend directory to search paths to ensure local overrides resolve
+        original_paths: List[Path] = list(self.search_paths)
         self.search_paths.insert(0, dir_path)
 
         try:
+            ## Scan for all files matching '*.service' pattern in alphabetical order
             for service_file in sorted(dir_path.glob("*.service")):
                 if service_file.is_file():
-                    audit = self.audit_unit(service_file.name)
+                    ## Audit individual service unit
+                    audit: ServiceAudit = self.audit_unit(service_file.name)
                     results.append(audit)
         finally:
+            ## Restore original search paths configuration
             self.search_paths = original_paths
 
         return results

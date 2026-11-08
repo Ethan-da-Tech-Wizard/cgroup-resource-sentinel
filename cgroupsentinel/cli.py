@@ -1,31 +1,32 @@
 """
-cgroupsentinel.cli
-==================
-
-Command-line interface for the Cgroup Resource Sentinel.
-Provides commands to audit systemd services, inspect live cgroup v2 states,
-read real-time Pressure Stall Information (PSI), and generate drop-in overrides.
-
-Commands:
-  audit             Audit systemd service files for missing cgroup v2 limits
-  inspect           Inspect live cgroup v2 metrics for a cgroup path, service, or PID
-  generate-override Synthesize safe systemd drop-in override configurations
-  pressure          Display real-time Linux kernel Pressure Stall Information (PSI)
-  report            Generate comprehensive host resource and vulnerability report
+Program: Cgroup Resource Sentinel - Command Line Interface
+Programmer: Ethan Kilmer
+Last Modified: 11/08/2026
+Purpose: Provide interactive terminal commands for auditing services, inspecting live cgroups, viewing PSI metrics, and generating overrides.
 """
 
 from __future__ import annotations
 
+## Argument parsing for command-line arguments and subcommands
 import argparse
+## JSON formatting for machine-readable output mode
 import json
+## Operating system interface for environment variables
 import os
+## System-specific parameters and standard stream references
 import sys
+## Object-oriented filesystem path operations
 from pathlib import Path
+## Type hinting annotations
 from typing import Any, Dict, List, Optional
 
+## Import auditor for systemd unit file analysis
 from .auditor import SystemdUnitAuditor
+## Import drop-in generator for synthesizing configuration files
 from .generator import DropInGenerator
+## Import inspector for live cgroup v2 and PSI telemetry
 from .inspector import CgroupInspector
+## Import domain models and conversion helpers
 from .models import (
     CgroupNode,
     HostMemoryInfo,
@@ -36,62 +37,86 @@ from .models import (
     parse_human_bytes,
 )
 
-# ANSI terminal formatting colors
-USE_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+## Check if stdout is an interactive terminal and NO_COLOR environment variable is absent
+USE_COLOR: bool = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
 
 def colorize(text: str, color_code: str) -> str:
     """Wraps text in ANSI color escape sequences if colors are active."""
+    ## If terminal colors are disabled, return raw text unchanged
     if not USE_COLOR:
         return text
+    ## Return string wrapped in ANSI terminal color escape codes
     return f"\033[{color_code}m{text}\033[0m"
 
+
 def bold(text: str) -> str:
+    """Formats text in bold."""
     return colorize(text, "1")
 
+
 def red(text: str) -> str:
+    """Formats text in red."""
     return colorize(text, "31")
 
+
 def green(text: str) -> str:
+    """Formats text in green."""
     return colorize(text, "32")
 
+
 def yellow(text: str) -> str:
+    """Formats text in yellow."""
     return colorize(text, "33")
 
+
 def blue(text: str) -> str:
+    """Formats text in blue."""
     return colorize(text, "34")
 
+
 def cyan(text: str) -> str:
+    """Formats text in cyan."""
     return colorize(text, "36")
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
     """Executes the 'audit' subcommand."""
+    ## Configure custom search path if supplied via CLI argument
     search_paths = [args.search_path] if args.search_path else None
+    ## Instantiate auditor with configured search paths
     auditor = SystemdUnitAuditor(search_paths=search_paths)
+    ## Target unit name or directory path
     target: Optional[str] = args.target
 
+    ## List to accumulate individual audit reports
     audits: List[ServiceAudit] = []
 
+    ## Check if explicit target was provided
     if target:
         target_path = Path(target)
+        ## If target is a directory, audit all .service files inside it
         if target_path.is_dir():
             audits = auditor.audit_directory(target_path)
+        ## If target is a specific existing .service file, audit directly
         elif target_path.is_file() and target_path.suffix == ".service":
-            # Direct audit of a single file
             parent_auditor = SystemdUnitAuditor(search_paths=[str(target_path.parent)])
             audits = [parent_auditor.audit_unit(target_path.name)]
+        ## Otherwise treat target as a service unit name to look up
         else:
             audits = [auditor.audit_unit(target)]
     else:
-        # Default: scan /etc/systemd/system if it exists
+        ## Default mode: scan standard system units directory if present
         etc_systemd = Path("/etc/systemd/system")
         if etc_systemd.is_dir():
             audits = auditor.audit_directory(etc_systemd)
         else:
             audits = [auditor.audit_unit("systemd-resolved.service")]
 
+    ## Check if output was requested in JSON format
     if args.json:
         out_list = []
+        ## Transform each ServiceAudit dataclass into a JSON-serializable dictionary
         for a in audits:
             out_list.append({
                 "unit_name": a.unit_name,
@@ -111,16 +136,20 @@ def cmd_audit(args: argparse.Namespace) -> int:
                     "oom_score_adjust": a.current_limits.oom_score_adjust,
                 },
             })
+        ## Print indented JSON string to stdout
         print(json.dumps(out_list, indent=2))
         return 0
 
+    ## Terminal presentation header
     print(bold("\n=== Systemd Service Cgroup v2 Resource Audit ==="))
     print(f"Audited {len(audits)} service(s):\n")
 
-    has_critical_failure = False
+    ## Flag tracking presence of any high or critical threat configurations
+    has_critical_failure: bool = False
 
+    ## Display findings for each audited service
     for a in audits:
-        # Format risk badge
+        ## Assign visual badge based on evaluated risk level
         if a.risk_level == "CRITICAL":
             badge = red("[CRITICAL RISK]")
             has_critical_failure = True
@@ -136,17 +165,20 @@ def cmd_audit(args: argparse.Namespace) -> int:
         if a.unit_path:
             print(f"    Path: {cyan(a.unit_path)}")
 
+        ## Print detected boundary violations
         if a.violations:
             print("    Violations:")
             for v in a.violations:
                 print(f"      {red('✗')} {v}")
 
+        ## Print actionable recommendations
         if a.recommendations:
             print("    Recommendations:")
             for r in a.recommendations:
                 print(f"      {blue('→')} {r}")
         print()
 
+    ## In strict mode, exit with code 1 if any critical or high hazards exist
     if args.strict and has_critical_failure:
         sys.stderr.write(red("Strict mode enabled: Critical or high-risk services detected!\n"))
         return 1
@@ -156,16 +188,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 def cmd_inspect(args: argparse.Namespace) -> int:
     """Executes the 'inspect' subcommand."""
+    ## Instantiate inspector with CLI root overrides
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
     target = args.target
 
+    ## Warn if unified cgroup v2 is not active
     if not inspector.is_cgroup_v2_available():
         if not args.json:
             print(yellow(f"Warning: Unified cgroup v2 controllers not found at {args.cgroup_root}"))
 
     node: Optional[CgroupNode] = None
 
-    # Determine if target is PID or cgroup path
+    ## Determine if target is PID or cgroup path
     if target.isdigit():
         pid = int(target)
         cgroup_rel = inspector.find_process_cgroup(pid)
@@ -176,10 +210,12 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     else:
         node = inspector.inspect_cgroup(target)
 
+    ## Check if inspection succeeded
     if not node:
         sys.stderr.write(red(f"Error: Cgroup path '{target}' could not be resolved or inspected.\n"))
         return 1
 
+    ## JSON output mode
     if args.json:
         out = {
             "path": node.path,
@@ -199,6 +235,7 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
+    ## Formatted terminal output
     print(bold("\n=== Cgroup v2 Live Node State ==="))
     print(f"Path: {cyan(node.path)}")
     print(f"Relative: {node.relative_path or '/'}")
@@ -233,9 +270,11 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 def cmd_generate_override(args: argparse.Namespace) -> int:
     """Executes the 'generate-override' subcommand."""
+    ## Instantiate inspector and drop-in generator
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
     generator = DropInGenerator(inspector=inspector)
 
+    ## Map explicit CLI arguments to custom override dictionary
     custom_overrides: Dict[str, Any] = {}
     if args.memory_max:
         custom_overrides["memory_max"] = parse_human_bytes(args.memory_max)
@@ -251,12 +290,15 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
     if args.oom_score:
         custom_overrides["oom_score_adjust"] = int(args.oom_score)
 
+    ## Calculate effective limits using selected profile and hardware heuristics
     limits = generator.calculate_limits(
         profile=args.profile,
         custom_overrides=custom_overrides,
     )
 
+    ## Output directory specification
     out_dir = Path(args.out_dir) if args.out_dir else None
+    ## Write configuration file or preview content
     target_file, content = generator.write_drop_in(
         unit_name=args.unit_name,
         limits=limits,
@@ -265,6 +307,7 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
         dry_run=not args.apply,
     )
 
+    ## JSON output mode
     if args.json:
         out = {
             "unit_name": args.unit_name,
@@ -285,6 +328,7 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
+    ## Terminal output mode
     if args.apply:
         print(green(f"✓ Drop-in override successfully installed to: {target_file}"))
         print("\nTo activate new limits:")
@@ -304,13 +348,17 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
 
 def cmd_pressure(args: argparse.Namespace) -> int:
     """Executes the 'pressure' subcommand."""
+    ## Instantiate inspector
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
+    ## Determine which resources to query
     resources = ["memory", "cpu", "io"] if args.resource == "all" else [args.resource]
 
+    ## Read PSI snapshots for requested resources
     snapshots: Dict[str, Optional[PSISnapshot]] = {}
     for res in resources:
         snapshots[res] = inspector.read_psi(res)
 
+    ## JSON output mode
     if args.json:
         out = {}
         for res, snap in snapshots.items():
@@ -336,6 +384,7 @@ def cmd_pressure(args: argparse.Namespace) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
+    ## Terminal output mode
     print(bold("\n=== Linux Kernel Pressure Stall Information (PSI) ==="))
     for res, snap in snapshots.items():
         print(f"\n{bold(res.upper())} Pressure:")
@@ -366,6 +415,7 @@ def cmd_pressure(args: argparse.Namespace) -> int:
 
 def cmd_report(args: argparse.Namespace) -> int:
     """Executes the 'report' subcommand (comprehensive system evaluation)."""
+    ## Telemetry inspector
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
     mem_info = inspector.read_host_memory_info()
     psi_mem = inspector.read_psi("memory")
@@ -373,10 +423,12 @@ def cmd_report(args: argparse.Namespace) -> int:
     psi_io = inspector.read_psi("io")
     cgroup_v2 = inspector.is_cgroup_v2_available()
 
+    ## Sample auditor
     auditor = SystemdUnitAuditor()
     sample_services = ["docker.service", "ollama.service", "sshd.service", "systemd-resolved.service"]
     audits = [auditor.audit_unit(s) for s in sample_services if auditor.find_unit_file(s)]
 
+    ## JSON output mode
     if args.json:
         out = {
             "cgroup_v2_active": cgroup_v2,
@@ -406,6 +458,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
+    ## Terminal presentation
     print(bold("\n========================================================"))
     print(bold("        CGROUP RESOURCE SENTINEL: SYSTEM REPORT         "))
     print(bold("========================================================"))
@@ -443,36 +496,40 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Builds and returns the CLI argument parser."""
+    ## Root parser configuration
     parser = argparse.ArgumentParser(
         prog="cgroup-sentinel",
         description="Zero-dependency Linux cgroup v2 resource governor, systemd unit auditor, and automated drop-in override generator.",
     )
+    ## Global argument: custom cgroup root mount point
     parser.add_argument(
         "--cgroup-root",
         default="/sys/fs/cgroup",
         help="Root path to cgroup v2 hierarchy (default: /sys/fs/cgroup)",
     )
+    ## Global argument: custom procfs mount point
     parser.add_argument(
         "--proc-root",
         default="/proc",
         help="Root path to procfs (default: /proc)",
     )
 
+    ## Subparser container for Sentinel subcommands
     subparsers = parser.add_subparsers(dest="command", help="Sentinel subcommands")
 
-    # 1. audit
+    ## 1. audit subcommand
     p_audit = subparsers.add_parser("audit", help="Audit systemd unit files for resource boundaries")
     p_audit.add_argument("target", nargs="?", help="Specific service unit or directory to audit")
     p_audit.add_argument("--search-path", help="Custom search directory for units")
     p_audit.add_argument("--strict", action="store_true", help="Exit with code 1 if critical/high risk found")
     p_audit.add_argument("--json", action="store_true", help="Output results in JSON format")
 
-    # 2. inspect
+    ## 2. inspect subcommand
     p_inspect = subparsers.add_parser("inspect", help="Inspect live cgroup v2 metrics")
     p_inspect.add_argument("target", help="Cgroup relative path (e.g. system.slice/docker.service) or PID")
     p_inspect.add_argument("--json", action="store_true", help="Output results in JSON format")
 
-    # 3. generate-override
+    ## 3. generate-override subcommand
     p_gen = subparsers.add_parser("generate-override", help="Generate systemd drop-in override")
     p_gen.add_argument("unit_name", help="Target service unit (e.g. ollama.service)")
     p_gen.add_argument(
@@ -492,7 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--apply", action="store_true", help="Write drop-in override directly to disk")
     p_gen.add_argument("--json", action="store_true", help="Output in JSON format")
 
-    # 4. pressure
+    ## 4. pressure subcommand
     p_psi = subparsers.add_parser("pressure", help="Display Linux Pressure Stall Information (PSI)")
     p_psi.add_argument(
         "--resource",
@@ -502,7 +559,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_psi.add_argument("--json", action="store_true", help="Output in JSON format")
 
-    # 5. report
+    ## 5. report subcommand
     p_rep = subparsers.add_parser("report", help="Generate comprehensive host resource and vulnerability report")
     p_rep.add_argument("--json", action="store_true", help="Output in JSON format")
 
@@ -511,13 +568,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Main CLI entrypoint."""
+    ## Parse command-line arguments
     parser = build_parser()
     args = parser.parse_args()
 
+    ## If no subcommand provided, show help message and exit
     if not args.command:
         parser.print_help()
         return 0
 
+    ## Dispatch table mapping subcommand names to their respective handlers
     commands = {
         "audit": cmd_audit,
         "inspect": cmd_inspect,
@@ -526,6 +586,7 @@ def main() -> int:
         "report": cmd_report,
     }
 
+    ## Execute matching handler
     handler = commands.get(args.command)
     if handler:
         return handler(args)
@@ -534,5 +595,6 @@ def main() -> int:
     return 1
 
 
+## Direct script execution entry point
 if __name__ == "__main__":
     sys.exit(main())
