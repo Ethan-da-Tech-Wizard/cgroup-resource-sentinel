@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cgroup-resource-sentinel"
 version = "0.1.0"
-description = "Zero-dependency Linux cgroup v2 resource governor, systemd unit auditor, and automated drop-in override generator."
+description = "Project for reviewing cgroup settings and generating systemd configuration overrides."
 readme = "README.md"
 authors = [
   { name = "Ethan Kilmer", email = "ethan@twu.software" }
@@ -24,7 +24,6 @@ keywords = [
   "devops"
 ]
 classifiers = [
-  "Development Status :: 4 - Beta",
   "Intended Audience :: System Administrators",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
