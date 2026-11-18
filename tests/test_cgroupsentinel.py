@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: test_cgroupsentinel.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Comprehensive unit test suite for Cgroup Resource Sentinel.
 #          Inputs: Mocked procfs and cgroupfs hierarchies, synthetic systemd unit

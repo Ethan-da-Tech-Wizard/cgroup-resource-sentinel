@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: generator.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Calculate hardware-adaptive resource boundaries and generate systemd
 #          drop-in override configuration files (50-cgroup-sentinel.conf).

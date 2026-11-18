@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: __main__.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Direct execution entrypoint for Cgroup Resource Sentinel.
 #          Inputs: Command line arguments supplied via sys.argv.

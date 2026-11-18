@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: auditor.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Audit systemd service unit files and drop-in overrides across standard
 #          system and user paths to identify unconstrained resource risks.
