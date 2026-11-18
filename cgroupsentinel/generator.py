@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - generator.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Calculates hardware-based resource limits and writes systemd drop-in override files that apply them.
 """
 Program: Cgroup Resource Sentinel - Drop-in Override Generator
 Programmer: Ethan Kilmer

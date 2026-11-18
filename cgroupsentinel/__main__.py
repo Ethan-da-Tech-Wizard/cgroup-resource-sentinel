@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - __main__.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Lets the package run as a program with python3 -m cgroupsentinel by handing control to the command line interface.
 """
 Program: Cgroup Resource Sentinel - Main Execution Entrypoint
 Programmer: Ethan Kilmer
