@@ -1,9 +1,17 @@
-"""
-Program: Cgroup Resource Sentinel - Domain Models & Data Representations
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Define strongly-typed data structures, byte parsers, and systemd INI generators for Linux cgroup v2 boundaries and telemetry.
-"""
+# ==============================================================================
+# Program: models.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Define strongly-typed data structures, byte parsers, and systemd INI
+#          generators for Linux cgroup v2 boundaries and Pressure Stall Information (PSI).
+#          Inputs: Raw configuration strings, numeric byte counts, and /proc metrics.
+#          Outputs: Validated dataclass instances, human-readable IEC byte strings,
+#                   and systemd drop-in configuration directives.
+#          Design Rationale: Decouples telemetry data structures from presentation
+#                            and enforcement logic, providing type safety and
+#                            standardized units across all sentinel modules.
+# ==============================================================================
 
 from __future__ import annotations
 

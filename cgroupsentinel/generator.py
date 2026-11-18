@@ -1,9 +1,17 @@
-"""
-Program: Cgroup Resource Sentinel - Drop-in Override Generator
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Calculate hardware-adaptive resource boundaries and generate systemd drop-in override configuration files.
-"""
+# ==============================================================================
+# Program: generator.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Calculate hardware-adaptive resource boundaries and generate systemd
+#          drop-in override configuration files (50-cgroup-sentinel.conf).
+#          Inputs: Service specifications, user-defined boundary profiles,
+#                  and detected host hardware capacities (CPU cores, RAM bytes).
+#          Outputs: Validated INI-formatted systemd drop-in override files and
+#                   synthesized ResourceLimits models.
+#          Design Rationale: Prevents single-service resource exhaustion by computing
+#                            safe proportional limits and systemd-oomd pressure limits.
+# ==============================================================================
 
 from __future__ import annotations
 

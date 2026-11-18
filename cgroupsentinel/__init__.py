@@ -1,9 +1,14 @@
-"""
-Program: Cgroup Resource Sentinel - Package Initialization
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Expose public API classes, data structures, and utilities for the cgroup-resource-sentinel package.
-"""
+# ==============================================================================
+# Program: __init__.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Package initialization and public API export for Cgroup Resource Sentinel.
+#          Inputs: Package-level imports of auditor, generator, inspector, and models.
+#          Outputs: Exported classes, dataclasses, conversion utilities, and version metadata.
+#          Design Rationale: Exposes a clean, unified public interface for auditing
+#                            and generating Linux cgroup v2 systemd resource boundaries.
+# ==============================================================================
 
 ## Import the core systemd unit auditor responsible for scanning unit files for missing boundaries
 from .auditor import SystemdUnitAuditor
@@ -30,7 +35,7 @@ from .models import (
 __version__ = "0.1.0"
 
 ## Author and copyright owner
-__author__ = "Ethan Kilmer"
+__author__ = "Ethan-da-Tech-Wizard"
 
 ## Explicit list of exported symbols available on wildcard import (`from cgroupsentinel import *`)
 __all__ = [
