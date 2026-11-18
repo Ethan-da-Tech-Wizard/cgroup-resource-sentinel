@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - cli.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Defines the terminal commands (audit, inspect, PSI pressure, generate overrides) and wires them to the auditor, inspector and generator.
 """
 Program: Cgroup Resource Sentinel - Command Line Interface
 Programmer: Ethan Kilmer

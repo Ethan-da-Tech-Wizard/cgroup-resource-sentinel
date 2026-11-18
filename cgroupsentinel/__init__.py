@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - __init__.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Package entry point that re-exports the public classes, data models and helper functions of cgroupsentinel and sets its version.
 """
 Program: Cgroup Resource Sentinel - Package Initialization
 Programmer: Ethan Kilmer

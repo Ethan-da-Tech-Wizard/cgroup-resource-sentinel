@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - auditor.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Scans systemd service unit files and drop-in overrides to find missing cgroup v2 resource limits and compute a risk score per service.
 """
 Program: Cgroup Resource Sentinel - Systemd Unit Auditor
 Programmer: Ethan Kilmer

@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - test_cgroupsentinel.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Unit tests for cgroup parsing, PSI metrics, unit auditing, limit calculation and CLI command output.
 """
 Program: Cgroup Resource Sentinel - Unit Test Suite
 Programmer: Ethan Kilmer

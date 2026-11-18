@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - inspector.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Reads the Linux cgroup v2 hierarchy, /proc/meminfo and PSI pressure files to report live resource usage and host hardware facts.
 """
 Program: Cgroup Resource Sentinel - Cgroup v2 & System Inspector
 Programmer: Ethan Kilmer

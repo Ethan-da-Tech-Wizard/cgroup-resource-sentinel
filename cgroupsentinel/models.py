@@ -1,3 +1,7 @@
+# Program: cgroup-resource-sentinel - models.py
+# Programmer: Ethan-da-Tech-Wizard (written with Claude, an AI assistant)
+# Last Modified: 2026-11-18
+# Purpose: Defines the dataclasses for limits, audits, cgroup nodes and pressure data, plus byte-size parsing/formatting and systemd INI text generation.
 """
 Program: Cgroup Resource Sentinel - Domain Models & Data Representations
 Programmer: Ethan Kilmer
