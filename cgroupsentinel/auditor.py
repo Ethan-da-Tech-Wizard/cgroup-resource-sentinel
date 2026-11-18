@@ -1,9 +1,17 @@
-"""
-Program: Cgroup Resource Sentinel - Systemd Unit Auditor
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Audit systemd service unit files and drop-in overrides to identify missing cgroup v2 resource limits and calculate risk scores.
-"""
+# ==============================================================================
+# Program: auditor.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Audit systemd service unit files and drop-in overrides across standard
+#          system and user paths to identify unconstrained resource risks.
+#          Inputs: Filesystem directory paths containing systemd .service units and
+#                  .service.d override configurations.
+#          Outputs: ServiceAudit assessments detailing resolved limits, missing
+#                   protections, and quantitative risk severity scores (0-100).
+#          Design Rationale: Accurately replicates systemd override precedence rules
+#                            to detect services that threaten host stability.
+# ==============================================================================
 
 from __future__ import annotations
 

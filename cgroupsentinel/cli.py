@@ -1,9 +1,15 @@
-"""
-Program: Cgroup Resource Sentinel - Command Line Interface
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Provide interactive terminal commands for auditing services, inspecting live cgroups, viewing PSI metrics, and generating overrides.
-"""
+# ==============================================================================
+# Program: cli.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Interactive Command Line Interface for Cgroup Resource Sentinel.
+#          Inputs: Command line arguments (audit, inspect, pressure, generate, report).
+#          Outputs: Formatted ANSI terminal reports, generated systemd drop-ins,
+#                   or structured JSON documents to stdout/stderr.
+#          Design Rationale: Delivers unified operator tooling for inspecting live
+#                            cgroup telemetry and automating host stability hardening.
+# ==============================================================================
 
 from __future__ import annotations
 

@@ -1,9 +1,14 @@
-"""
-Program: Cgroup Resource Sentinel - Main Execution Entrypoint
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Provide direct CLI execution support when invoked via `python3 -m cgroupsentinel`.
-"""
+# ==============================================================================
+# Program: __main__.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Direct execution entrypoint for Cgroup Resource Sentinel.
+#          Inputs: Command line arguments supplied via sys.argv.
+#          Outputs: Standard system process exit code returned by main().
+#          Design Rationale: Enables direct invocation via `python3 -m cgroupsentinel`
+#                            conforming to standard Python package CLI execution idioms.
+# ==============================================================================
 
 ## System-specific parameters and functions for exit codes and process termination
 import sys

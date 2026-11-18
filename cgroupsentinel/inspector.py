@@ -1,9 +1,16 @@
-"""
-Program: Cgroup Resource Sentinel - Cgroup v2 & System Inspector
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Inspect the Linux cgroup v2 unified hierarchy, read controller metrics, parse /proc/meminfo, and collect PSI pressure data.
-"""
+# ==============================================================================
+# Program: inspector.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Inspect the Linux cgroup v2 unified hierarchy, read controller metrics,
+#          parse /proc/meminfo, and collect system-wide Pressure Stall Information (PSI).
+#          Inputs: Paths to cgroup v2 filesystem mount and /proc filesystem.
+#          Outputs: Strongly-typed CgroupNode hierarchies, HostMemoryInfo structs,
+#                   and PSISnapshot pressure metrics.
+#          Design Rationale: Decouples telemetry ingestion with injectable filesystem
+#                            roots to allow comprehensive cross-platform unit testing.
+# ==============================================================================
 
 from __future__ import annotations
 

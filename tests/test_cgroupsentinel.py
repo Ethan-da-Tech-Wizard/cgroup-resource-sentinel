@@ -1,9 +1,16 @@
-"""
-Program: Cgroup Resource Sentinel - Unit Test Suite
-Programmer: Ethan Kilmer
-Last Modified: 11/08/2026
-Purpose: Validate cgroup v2 parsing, PSI pressure metrics, systemd unit auditing, limit calculations, and CLI command execution.
-"""
+# ==============================================================================
+# Program: test_cgroupsentinel.py
+# Programmer: Ethan-da-Tech-Wizard
+# Course: CIS 156 / Advanced Systems
+# Last Modified: November 18, 2026
+# Purpose: Comprehensive unit test suite for Cgroup Resource Sentinel.
+#          Inputs: Mocked procfs and cgroupfs hierarchies, synthetic systemd unit
+#                  directories, and CLI command line invocations.
+#          Outputs: Test assertions verifying cgroup parsing, PSI pressure extraction,
+#                   unit auditing algorithms, and override file generation.
+#          Design Rationale: Validates that resource auditing and drop-in generation
+#                            behave deterministically across simulated Linux environments.
+# ==============================================================================
 
 from __future__ import annotations
 
