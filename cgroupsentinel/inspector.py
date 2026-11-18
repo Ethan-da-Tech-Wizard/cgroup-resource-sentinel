@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: inspector.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Inspect the Linux cgroup v2 unified hierarchy, read controller metrics,
 #          parse /proc/meminfo, and collect system-wide Pressure Stall Information (PSI).

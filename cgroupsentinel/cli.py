@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: cli.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Interactive Command Line Interface for Cgroup Resource Sentinel.
 #          Inputs: Command line arguments (audit, inspect, pressure, generate, report).

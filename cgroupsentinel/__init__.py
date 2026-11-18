@@ -1,7 +1,6 @@
 # ==============================================================================
 # Program: __init__.py
 # Programmer: Ethan-da-Tech-Wizard
-# Course: CIS 156 / Advanced Systems
 # Last Modified: November 18, 2026
 # Purpose: Package initialization and public API export for Cgroup Resource Sentinel.
 #          Inputs: Package-level imports of auditor, generator, inspector, and models.
