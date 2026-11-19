@@ -59,6 +59,10 @@ from cgroupsentinel.models import (
 )
 
 
+# Test layout: one TestCase per module (models, inspector, auditor, generator, CLI).
+# Every test builds its own fake /proc and /sys/fs/cgroup trees inside a temp
+# directory, so the suite is hermetic, needs no root, and runs on any OS (including
+# macOS) even though the tool targets Linux.
 class TestModelsAndUtilities(unittest.TestCase):
     """Tests byte parsing, formatting, and ResourceLimits serialization."""
 
@@ -177,11 +181,15 @@ class TestModelsAndUtilities(unittest.TestCase):
         self.assertEqual(snap_crit.pressure_level, "CRITICAL")
 
 
+# The inspector takes injectable cgroup_root/proc_root paths precisely so these
+# tests can point it at fixtures instead of the real kernel pseudo-filesystems.
 class TestCgroupInspector(unittest.TestCase):
     """Tests cgroup hierarchy inspection, /proc/meminfo and PSI parsing."""
 
     def setUp(self) -> None:
         """Create isolated sandbox directories representing cgroup and proc filesystems."""
+        # mkdtemp gives a unique directory per test; tearDown removes it again so tests
+        # cannot leak state into one another.
         self.test_dir = tempfile.mkdtemp()
         self.cgroup_root = Path(self.test_dir) / "cgroup"
         self.proc_root = Path(self.test_dir) / "proc"
@@ -201,6 +209,8 @@ class TestCgroupInspector(unittest.TestCase):
     def test_cgroup_v2_availability(self) -> None:
         """Verifies detection of cgroup v2 unified hierarchy."""
         ## Initially false because marker doesn't exist
+        # cgroup v2 is detected by the presence of cgroup.controllers at the root;
+        # v1 hierarchies do not have that file.
         self.assertFalse(self.inspector.is_cgroup_v2_available())
 
         ## Create cgroup.controllers marker file
@@ -215,10 +225,13 @@ class TestCgroupInspector(unittest.TestCase):
         ## Populate mock pseudofiles
         (slice_dir / "cgroup.controllers").write_text("memory cpu pids\n")
         (slice_dir / "cgroup.procs").write_text("1001\n1002\n")
+        # Values mirror real kernel formats: plain byte counts, and cpu.max as
+        # '<quota_us> <period_us>' (50000/100000 = 50% of one CPU).
         (slice_dir / "memory.current").write_text("104857600\n")  # 100MB
         (slice_dir / "memory.max").write_text("536870912\n")     # 512MB
         (slice_dir / "memory.high").write_text("429496729\n")
         (slice_dir / "memory.swap.current").write_text("0\n")
+        # A swap max of 0 means swap is forbidden for the cgroup (a valid limit, not 'unset').
         (slice_dir / "memory.swap.max").write_text("0\n")
         (slice_dir / "cpu.max").write_text("50000 100000\n")     # 50% CPU
         (slice_dir / "pids.current").write_text("4\n")
@@ -240,6 +253,8 @@ class TestCgroupInspector(unittest.TestCase):
 
     def test_read_proc_meminfo(self) -> None:
         """Verifies extraction and byte scaling from /proc/meminfo."""
+        # /proc/meminfo reports kibibytes with a 'kB' suffix; the inspector must scale
+        # to bytes (x1024), which is what the assertions below verify.
         meminfo_content = (
             "MemTotal:       16384000 kB\n"
             "MemFree:         4096000 kB\n"
@@ -298,6 +313,8 @@ class TestCgroupInspector(unittest.TestCase):
         self.assertEqual(score, 500)
 
 
+# The auditor reads real unit-file text, so fixtures are literal [Unit]/[Service]
+# INI snippets written to a temp directory it is told to search.
 class TestSystemdUnitAuditor(unittest.TestCase):
     """Tests systemd service file auditing and risk evaluation."""
 
@@ -314,6 +331,8 @@ class TestSystemdUnitAuditor(unittest.TestCase):
 
     def test_audit_unbounded_hazardous_unit(self) -> None:
         """Verifies that an unconstrained service unit receives a CRITICAL risk score."""
+        # A unit with no Memory/CPU/Tasks/OOM limits at all: the worst case the auditor
+        # should flag, so every has_* flag is expected to be False.
         bad_service = (
             "[Unit]\n"
             "Description=Wild Unbounded Service\n\n"
@@ -333,6 +352,7 @@ class TestSystemdUnitAuditor(unittest.TestCase):
         self.assertFalse(audit.has_oom_policy)
         self.assertFalse(audit.has_oom_score_adjust)
 
+        # 75 is the CRITICAL threshold in the auditor's scoring scheme.
         ## Risk score should be critical (>= 75)
         self.assertGreaterEqual(audit.risk_score, 75)
         self.assertEqual(audit.risk_level, "CRITICAL")
@@ -341,6 +361,8 @@ class TestSystemdUnitAuditor(unittest.TestCase):
 
     def test_audit_well_constrained_safe_unit(self) -> None:
         """Verifies that a fully constrained service receives a score of 0 (LOW risk)."""
+        # The inverse fixture: every limit the auditor looks for is present, so the
+        # risk score must be exactly 0 and no violations may be reported.
         good_service = (
             "[Unit]\n"
             "Description=Well Constrained Protected Service\n\n"
@@ -375,6 +397,9 @@ class TestSystemdUnitAuditor(unittest.TestCase):
 
     def test_audit_drop_in_override_merging(self) -> None:
         """Verifies that drop-in override files correctly satisfy resource boundaries."""
+        # Vendor units usually ship without limits; operators add them via a systemd
+        # drop-in (<unit>.service.d/*.conf). The auditor must merge drop-ins, otherwise
+        # it would report limits that are actually in force as missing.
         base_service = (
             "[Unit]\n"
             "Description=Vendor Service Without Limits\n\n"
@@ -426,6 +451,8 @@ class TestDropInGenerator(unittest.TestCase):
 
     def test_calculate_limits_conservative(self) -> None:
         """Verifies conservative profile boundary heuristics."""
+        # Explicit host_ram/cpu_cores arguments keep the profile maths deterministic
+        # instead of depending on the machine running the tests.
         ram: int = 16 * (1024**3)  # 16 GB
         cpus: int = 8
         limits = self.generator.calculate_limits(
@@ -435,6 +462,7 @@ class TestDropInGenerator(unittest.TestCase):
         )
 
         ## Conservative caps at 1GB max
+        # The conservative profile hard-caps memory at 1 GiB regardless of host RAM.
         self.assertEqual(limits.memory_max, 1024**3)
         self.assertEqual(limits.memory_swap_max, 0)
         self.assertEqual(limits.cpu_quota_percent, 50.0)
@@ -470,10 +498,13 @@ class TestDropInGenerator(unittest.TestCase):
         ## 50% of 32GB is 16GB
         self.assertEqual(limits.memory_max, 16 * (1024**3))
         ## (8 cpus - 1) * 100% = 700%
+        # The aggressive profile leaves one core free for the host (cores - 1).
         self.assertEqual(limits.cpu_quota_percent, 700.0)
         self.assertEqual(limits.tasks_max, 4096)
+        # Aggressive profile lets the kernel kill the whole unit on OOM.
         self.assertEqual(limits.oom_policy, "kill")
 
+    # Writes go to a temp directory so the test never touches /etc/systemd.
     def test_write_drop_in(self) -> None:
         """Verifies writing drop-in file to disk."""
         limits = ResourceLimits(
@@ -497,6 +528,8 @@ class TestDropInGenerator(unittest.TestCase):
         self.assertIn("CPUQuota=100%", content)
 
 
+# CLI tests call the cmd_* handlers directly with parsed args and capture stdout,
+# rather than spawning a subprocess; --json keeps the output machine-checkable.
 class TestCLICommands(unittest.TestCase):
     """Tests command-line interface execution and JSON output modes."""
 
@@ -511,6 +544,7 @@ class TestCLICommands(unittest.TestCase):
         self.proc_dir.mkdir(parents=True)
 
         ## Initialize minimal cgroup v2 marker
+        # Minimal fixtures so the handlers see a 'valid' cgroup v2 host and readable memory info.
         (self.cgroup_dir / "cgroup.controllers").write_text("memory cpu pids\n")
         ## Initialize minimal meminfo
         (self.proc_dir / "meminfo").write_text("MemTotal: 8388608 kB\nMemAvailable: 4194304 kB\n")
@@ -531,6 +565,7 @@ class TestCLICommands(unittest.TestCase):
             "--json",
         ])
 
+        # Swap sys.stdout for a buffer so the JSON the handler prints can be parsed back.
         buf = io.StringIO()
         with patch("sys.stdout", buf):
             code = cmd_audit(args)

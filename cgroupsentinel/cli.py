@@ -43,6 +43,8 @@ from .models import (
 )
 
 ## Check if stdout is an interactive terminal and NO_COLOR environment variable is absent
+# Evaluated once at import: color is used only for real terminals, so piped
+# output and JSON consumers never receive escape codes (NO_COLOR convention).
 USE_COLOR: bool = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 
 
@@ -85,6 +87,9 @@ def cyan(text: str) -> str:
     return colorize(text, "36")
 
 
+# Subcommand handlers below all return a process exit code (0 ok, 1 failure)
+# and share one shape: build the helper objects, gather data, then either emit
+# JSON (machine mode, no colors) or a human-readable report.
 def cmd_audit(args: argparse.Namespace) -> int:
     """Executes the 'audit' subcommand."""
     ## Configure custom search path if supplied via CLI argument
@@ -98,12 +103,16 @@ def cmd_audit(args: argparse.Namespace) -> int:
     audits: List[ServiceAudit] = []
 
     ## Check if explicit target was provided
+    # Resolve the audit target three ways: directory, a literal .service file path,
+    # or a bare unit name looked up through the auditor's search paths.
     if target:
         target_path = Path(target)
         ## If target is a directory, audit all .service files inside it
         if target_path.is_dir():
             audits = auditor.audit_directory(target_path)
         ## If target is a specific existing .service file, audit directly
+        # A file path is audited through a throwaway auditor rooted at its parent
+        # directory, so the unit is found by name there.
         elif target_path.is_file() and target_path.suffix == ".service":
             parent_auditor = SystemdUnitAuditor(search_paths=[str(target_path.parent)])
             audits = [parent_auditor.audit_unit(target_path.name)]
@@ -119,6 +128,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
             audits = [auditor.audit_unit("systemd-resolved.service")]
 
     ## Check if output was requested in JSON format
+    # JSON mode returns early so no colored or decorative text pollutes stdout.
     if args.json:
         out_list = []
         ## Transform each ServiceAudit dataclass into a JSON-serializable dictionary
@@ -150,9 +160,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
     print(f"Audited {len(audits)} service(s):\n")
 
     ## Flag tracking presence of any high or critical threat configurations
+    # Remembered across the loop so the exit code can be decided after all output is shown.
+    # Remembered across the loop so the exit code can be decided after all output is shown.
     has_critical_failure: bool = False
 
     ## Display findings for each audited service
+    # Walk the results and map each risk level to a badge; HIGH and CRITICAL both
+    # flip the flag that --strict later turns into a failing exit code.
     for a in audits:
         ## Assign visual badge based on evaluated risk level
         if a.risk_level == "CRITICAL":
@@ -184,6 +198,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         print()
 
     ## In strict mode, exit with code 1 if any critical or high hazards exist
+    # --strict exists for CI gating: a risky unit makes the command fail.
     if args.strict and has_critical_failure:
         sys.stderr.write(red("Strict mode enabled: Critical or high-risk services detected!\n"))
         return 1
@@ -191,6 +206,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+# Inspect accepts either a PID or a cgroup path; a PID is first translated to
+# its cgroup via /proc/<pid>/cgroup.
 def cmd_inspect(args: argparse.Namespace) -> int:
     """Executes the 'inspect' subcommand."""
     ## Instantiate inspector with CLI root overrides
@@ -198,13 +215,17 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     target = args.target
 
     ## Warn if unified cgroup v2 is not active
+    # Only warn (do not abort): the inspector may still be pointed at a fixture
+    # tree through --cgroup-root. Suppressed in JSON mode to keep stdout parseable.
     if not inspector.is_cgroup_v2_available():
         if not args.json:
             print(yellow(f"Warning: Unified cgroup v2 controllers not found at {args.cgroup_root}"))
 
+    # Starts unresolved; either lookup path below assigns it.
     node: Optional[CgroupNode] = None
 
     ## Determine if target is PID or cgroup path
+    # All-digit targets are treated as PIDs; anything else is a cgroup path.
     if target.isdigit():
         pid = int(target)
         cgroup_rel = inspector.find_process_cgroup(pid)
@@ -254,6 +275,8 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     print(f"  Swap Current:      {format_bytes_human(node.memory_swap_current or 0)}")
     print(f"  Swap Max:          {format_bytes_human(node.memory_swap_max if node.memory_swap_max is not None else -1)}")
 
+    # cpu.max holds quota/period in microseconds; a negative quota means "max" (no limit),
+    # so the percentage is only computed for a real quota.
     print("\n" + bold("CPU Controller (cpu.*):"))
     if node.cpu_max_quota is not None and node.cpu_max_period:
         if node.cpu_max_quota < 0:
@@ -273,6 +296,8 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+# generate-override is a dry run unless --apply is given, so previewing is the
+# safe default and nothing is written to disk by accident.
 def cmd_generate_override(args: argparse.Namespace) -> int:
     """Executes the 'generate-override' subcommand."""
     ## Instantiate inspector and drop-in generator
@@ -280,13 +305,17 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
     generator = DropInGenerator(inspector=inspector)
 
     ## Map explicit CLI arguments to custom override dictionary
+    # Empty by default: with no flags the profile alone decides every limit.
     custom_overrides: Dict[str, Any] = {}
+    # Only flags the operator actually passed become overrides; unset ones fall
+    # through to the chosen profile's computed defaults.
     if args.memory_max:
         custom_overrides["memory_max"] = parse_human_bytes(args.memory_max)
     if args.memory_high:
         custom_overrides["memory_high"] = parse_human_bytes(args.memory_high)
     if args.memory_swap_max:
         custom_overrides["memory_swap_max"] = parse_human_bytes(args.memory_swap_max)
+    # Accept '150%' or '150': strip the percent sign before converting.
     if args.cpu_quota:
         clean_cpu = args.cpu_quota.rstrip("%").strip()
         custom_overrides["cpu_quota_percent"] = float(clean_cpu)
@@ -296,6 +325,7 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
         custom_overrides["oom_score_adjust"] = int(args.oom_score)
 
     ## Calculate effective limits using selected profile and hardware heuristics
+    # Profile heuristics (scaled to host RAM) first, then explicit overrides on top.
     limits = generator.calculate_limits(
         profile=args.profile,
         custom_overrides=custom_overrides,
@@ -309,6 +339,7 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
         limits=limits,
         destination_dir=out_dir,
         is_user=args.user,
+        # dry_run is the inverse of --apply.
         dry_run=not args.apply,
     )
 
@@ -351,14 +382,18 @@ def cmd_generate_override(args: argparse.Namespace) -> int:
     return 0
 
 
+# PSI = Pressure Stall Information. 'some' means at least one task stalled,
+# 'full' means every task stalled; avgN are percentages over N seconds.
 def cmd_pressure(args: argparse.Namespace) -> int:
     """Executes the 'pressure' subcommand."""
     ## Instantiate inspector
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
     ## Determine which resources to query
+    # 'all' fans out to the three PSI resources the kernel exposes.
     resources = ["memory", "cpu", "io"] if args.resource == "all" else [args.resource]
 
     ## Read PSI snapshots for requested resources
+    # Keyed by resource name; None marks a resource the kernel did not expose.
     snapshots: Dict[str, Optional[PSISnapshot]] = {}
     for res in resources:
         snapshots[res] = inspector.read_psi(res)
@@ -393,10 +428,12 @@ def cmd_pressure(args: argparse.Namespace) -> int:
     print(bold("\n=== Linux Kernel Pressure Stall Information (PSI) ==="))
     for res, snap in snapshots.items():
         print(f"\n{bold(res.upper())} Pressure:")
+        # None means /proc/pressure/<res> is missing (PSI disabled or old kernel).
         if not snap:
             print(f"  {yellow('Unavailable')} (PSI not enabled in kernel or /proc/pressure/{res} missing)")
             continue
 
+        # CRITICAL and HIGH are both shown in red; the text label still tells them apart.
         level_str = snap.pressure_level
         if level_str == "CRITICAL":
             badge = red(f"[{level_str}]")
@@ -418,10 +455,14 @@ def cmd_pressure(args: argparse.Namespace) -> int:
     return 0
 
 
+# report is an at-a-glance summary: host memory, PSI levels, and a small audit of
+# commonly resource-hungry services (only those actually installed).
 def cmd_report(args: argparse.Namespace) -> int:
     """Executes the 'report' subcommand (comprehensive system evaluation)."""
     ## Telemetry inspector
     inspector = CgroupInspector(cgroup_root=args.cgroup_root, proc_root=args.proc_root)
+    # All readers degrade gracefully when files are missing, so report never crashes
+    # on hosts without cgroup v2 or PSI.
     mem_info = inspector.read_host_memory_info()
     psi_mem = inspector.read_psi("memory")
     psi_cpu = inspector.read_psi("cpu")
@@ -430,6 +471,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     ## Sample auditor
     auditor = SystemdUnitAuditor()
+    # Fixed sample list; units that cannot be found are skipped, not reported as errors.
     sample_services = ["docker.service", "ollama.service", "sshd.service", "systemd-resolved.service"]
     audits = [auditor.audit_unit(s) for s in sample_services if auditor.find_unit_file(s)]
 
@@ -499,6 +541,8 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# Parser construction is separated from main() so tests can build and inspect it
+# without executing a command.
 def build_parser() -> argparse.ArgumentParser:
     """Builds and returns the CLI argument parser."""
     ## Root parser configuration
@@ -523,6 +567,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", help="Sentinel subcommands")
 
     ## 1. audit subcommand
+    # Each subcommand below declares its own flags; --json is repeated per command
+    # so it can follow the subcommand name on the command line.
     p_audit = subparsers.add_parser("audit", help="Audit systemd unit files for resource boundaries")
     p_audit.add_argument("target", nargs="?", help="Specific service unit or directory to audit")
     p_audit.add_argument("--search-path", help="Custom search directory for units")
@@ -546,6 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--memory-max", help="Custom MemoryMax (e.g. 2G, 512M)")
     p_gen.add_argument("--memory-high", help="Custom MemoryHigh watermark (e.g. 1.8G)")
     p_gen.add_argument("--memory-swap-max", help="Custom MemorySwapMax (e.g. 0, 500M)")
+    # Note '%%' because argparse help strings use %-formatting.
     p_gen.add_argument("--cpu-quota", help="Custom CPUQuota percentage (e.g. 100%%)")
     p_gen.add_argument("--tasks-max", help="Custom TasksMax ceiling (e.g. 512)")
     p_gen.add_argument("--oom-score", help="Custom OOMScoreAdjust (-1000 to 1000)")
@@ -571,6 +618,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# main returns an int rather than calling sys.exit so it stays testable; only the
+# __main__ guard at the bottom turns it into an exit status.
 def main() -> int:
     """Main CLI entrypoint."""
     ## Parse command-line arguments
@@ -583,6 +632,8 @@ def main() -> int:
         return 0
 
     ## Dispatch table mapping subcommand names to their respective handlers
+    # Dispatch table instead of an if/elif chain; adding a subcommand means one
+    # parser entry plus one line here.
     commands = {
         "audit": cmd_audit,
         "inspect": cmd_inspect,
@@ -592,6 +643,8 @@ def main() -> int:
     }
 
     ## Execute matching handler
+    # Unknown commands cannot normally reach here (argparse rejects them) but the
+    # fallback keeps the function total.
     handler = commands.get(args.command)
     if handler:
         return handler(args)
