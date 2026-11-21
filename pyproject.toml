@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Project for reviewing cgroup settings and generating systemd configuration overrides."
 readme = "README.md"
 authors = [
-  { name = "Ethan Kilmer", email = "ethan@twu.software" }
+  { name = "Ethan-da-Tech-Wizard" }
 ]
 license = { text = "MIT" }
 keywords = [
