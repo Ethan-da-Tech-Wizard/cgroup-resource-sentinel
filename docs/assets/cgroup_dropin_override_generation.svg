@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 508" width="860" height="508">
+  <defs>
+    <style>
+      .terminal-bg { fill: #181825; }
+      .terminal-header { fill: #11111b; }
+      .terminal-title { fill: #a6adc8; font-family: monospace, monospace; font-size: 13px; font-weight: bold; text-anchor: middle; }
+      .terminal-text { fill: #cdd6f4; font-family: monospace, monospace; font-size: 13px; }
+      .btn-red { fill: #f38ba8; }
+      .btn-yellow { fill: #f9e2af; }
+      .btn-green { fill: #a6e3a1; }
+    </style>
+  </defs>
+  <rect class="terminal-bg" x="0" y="0" width="860" height="508" rx="10" ry="10" />
+  <path class="terminal-header" d="M 0 10 A 10 10 0 0 1 10 0 L 850 0 A 10 10 0 0 1 860 10 L 860 42 L 0 42 Z" />
+  <circle class="btn-red" cx="24" cy="21" r="6" />
+  <circle class="btn-yellow" cx="42" cy="21" r="6" />
+  <circle class="btn-green" cx="60" cy="21" r="6" />
+  <text class="terminal-title" x="430" y="26">Cgroup Sentinel: Automated Drop-in Override &amp; PSI Defense</text>
+  <g class="terminal-text">
+    <text x="24" y="80">$ cgroupsentinel generate-override --unit heavy-worker.service --profile standard</text>
+    <text x="24" y="102">🛡️  Generating Cgroup v2 Systemd Drop-in Override</text>
+    <text x="24" y="124">======================================================================</text>
+    <text x="24" y="146">Target Unit      : heavy-worker.service</text>
+    <text x="24" y="168">Hardware Ceiling : RAM: 16.0 GB | CPU Cores: 8</text>
+    <text x="24" y="190">Applied Profile  : STANDARD (Balanced multi-tenant isolation)</text>
+    <text x="24" y="212"></text>
+    <text x="24" y="234">Synthesized Configuration Directive:</text>
+    <text x="24" y="256">/etc/systemd/system/heavy-worker.service.d/10-resource-control.conf</text>
+    <text x="24" y="278">  [Service]</text>
+    <text x="24" y="300">  MemoryMax=4G</text>
+    <text x="24" y="322">  MemoryHigh=3500M</text>
+    <text x="24" y="344">  CPUQuota=400%</text>
+    <text x="24" y="366">  TasksMax=512</text>
+    <text x="24" y="388">  IOWeight=100</text>
+    <text x="24" y="410"></text>
+    <text x="24" y="432">----------------------------------------------------------------------</text>
+    <text x="24" y="454">✓ Override deployed. Executed &apos;systemctl daemon-reload&apos; [SUCCESS]</text>
+    <text x="24" y="476">✓ Re-audit Status: PASS (Risk score reduced from 95 to 0)</text>
+  </g>
+</svg>
